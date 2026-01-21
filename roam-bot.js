@@ -8,34 +8,45 @@ const TG_TOKEN = process.env.TG_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 const PORT = process.env.PORT || 3000;
 
-// Khoảng cách quét (120s là cực kỳ an toàn cho Render Free và tránh bị RPC chặn)
-const POLL_INTERVAL = 120_000; 
+const POLL_INTERVAL = 120_000; // 2 phút quét 1 lần
+const HEARTBEAT_INTERVAL = 2 * 60 * 60 * 1000; // 2 tiếng báo cáo 1 lần
+
+if (!TG_TOKEN || !CHAT_ID) {
+    console.error("❌ THIẾU CONFIG!");
+    process.exit(1);
+}
 
 const bot = new TelegramBot(TG_TOKEN, { polling: false });
 
 /* ================= WEB SERVER (KEEP-ALIVE) ================= */
 http.createServer((req, res) => {
     res.writeHead(200);
-    res.end("ROAM BOT BY DINHTHACH IS RUNNING");
-}).listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
+    res.end("ROAM BOT DINHTHACH STATUS: OK");
+}).listen(PORT);
 
-/* ================= URGENT NOTIFICATION (SPAM) ================= */
+/* ================= NOTIFICATION SYSTEM ================= */
+
+// Hàm spam khi có Pool
 async function sendUrgentAlert(chain, amount, extraInfo) {
     const messages = [
         `🚨🚨🚨 **[${chain}] ROAM NẠP POOL!!** 🚨🚨🚨\n\nSố lượng: **+${amount.toLocaleString()} ROAM**\n${extraInfo}`,
-        `🔥 **GẤP! GẤP! GẤP!** 🔥\n\nPool đang mở, vào húp ngay kẻo hết!\n🔗 Link: https://weroam.xyz/`,
-        `⚡ **PROJECT BY DINHTHACH** ⚡\n\nCheck ví và rút ngay! 🚀🚀🚀`
+        `🔥 **GẤP! GẤP! GẤP!** 🔥\n\nLink: https://weroam.xyz/`,
+        `⚡ **PROJECT BY DINHTHACH** ⚡`
     ];
-
     for (const msg of messages) {
         try {
             await bot.sendMessage(CHAT_ID, msg, { parse_mode: "Markdown" });
-            await new Promise(res => setTimeout(res, 800)); // Delay nhẹ tránh Telegram chặn spam
-        } catch (e) {
-            console.error("Telegram send error:", e.message);
-        }
+            await new Promise(res => setTimeout(res, 800));
+        } catch (e) { console.error("Lỗi gửi tin spam"); }
     }
 }
+
+// Báo cáo định kỳ (Heartbeat)
+setInterval(async () => {
+    try {
+        await bot.sendMessage(CHAT_ID, "😎 Anh Thạch đẹp trai, em đang làm việc chăm chỉ đây, mọi thứ đang chạy rất tốt! ✅");
+    } catch (e) { console.error("Lỗi gửi heartbeat"); }
+}, HEARTBEAT_INTERVAL);
 
 /* ================= SOLANA LOGIC ================= */
 const SOL_RPC = "https://api.mainnet-beta.solana.com";
@@ -47,16 +58,11 @@ async function checkSolana() {
     try {
         const res = await solConn.getTokenAccountBalance(SOL_POOL_ACC);
         const current = res?.value?.uiAmount ?? 0;
-
         if (lastSolBalance !== null && current > lastSolBalance + 10) {
-            const diff = current - lastSolBalance;
-            await sendUrgentAlert("SOLANA", diff, `💰 Tổng dư: ${current.toLocaleString()}`);
+            await sendUrgentAlert("SOLANA", current - lastSolBalance, `💰 Tổng dư: ${current.toLocaleString()}`);
         }
         lastSolBalance = current;
-        console.log(`[SOL] Balance: ${current}`);
-    } catch (e) {
-        console.warn("⚠️ Solana Check Failed - Skipping to next turn");
-    }
+    } catch (e) { console.log("Solana lag..."); }
 }
 
 /* ================= BNB LOGIC ================= */
@@ -73,10 +79,7 @@ async function checkBNB() {
         if (lastBnbBlock === null) {
             lastBnbBlock = currentBlock;
         } else if (currentBlock > lastBnbBlock) {
-            const contract = new ethers.Contract(BNB_TOKEN, [
-                "event Transfer(address indexed from, address indexed to, uint256 value)"
-            ], bscProvider);
-
+            const contract = new ethers.Contract(BNB_TOKEN, ["event Transfer(address indexed from, address indexed to, uint256 value)"], bscProvider);
             const events = await contract.queryFilter("Transfer", lastBnbBlock + 1, currentBlock);
             for (const e of events) {
                 const { from, to, value } = e.args;
@@ -86,23 +89,32 @@ async function checkBNB() {
                 }
             }
             lastBnbBlock = currentBlock;
-            console.log(`[BNB] Block: ${currentBlock}`);
         }
-    } catch (e) {
-        console.warn("⚠️ BNB Check Failed - Skipping to next turn");
-    }
+    } catch (e) { console.log("BNB lag..."); }
 }
 
-/* ================= MASTER LOOP (FALLBACK) ================= */
+/* ================= SYSTEM HANDLER (BÁO SẬP) ================= */
+
+// Khi bot khởi động lại
+bot.sendMessage(CHAT_ID, "🚀 **BOT DINHTHACH ĐÃ ONLINE!**\nEm đã sẵn sàng soi Pool cho anh.");
+
+// Khi có lỗi cực nặng làm sập bot
+process.on('uncaughtException', async (err) => {
+    try {
+        await bot.sendMessage(CHAT_ID, "❌ **ANH THẠCH ƠI, EM SẬP RỒI!**\nLỗi: " + err.message + "\nAnh kiểm tra lại Render nhé.");
+    } catch (e) {}
+    process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason) => {
+    console.error("Lỗi không xác định:", reason);
+});
+
+/* ================= VÒNG LẶP CHÍNH ================= */
 async function runBot() {
-    console.log("--- Bắt đầu vòng quét mới ---");
     await checkSolana();
     await checkBNB();
-    
-    // Tự gọi lại sau khoảng thời gian cấu hình
     setTimeout(runBot, POLL_INTERVAL);
 }
 
-// Khởi chạy
-bot.sendMessage(CHAT_ID, "🚀 **ROAM-BOT DINHTHACH** đã online!\nChế độ: Spam dồn dập.");
 runBot();
