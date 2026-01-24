@@ -65,32 +65,47 @@ async function checkSolana() {
     } catch (e) { console.log("Solana lag..."); }
 }
 
-/* ================= BNB LOGIC ================= */
-const BSC_HTTP = "https://bsc.publicnode.com";
+/* ================= BNB LOGIC (BẢN CẢI TIẾN - QUÉT SỐ DƯ) ================= */
+// Mình thay bằng link RPC llama để tốc độ phản hồi nhanh hơn link cũ
+const BSC_HTTP = "https://binance.llamarpc.com"; 
 const bscProvider = new ethers.JsonRpcProvider(BSC_HTTP);
 const BNB_TOKEN = "0x3fefe29da25bea166fb5f6ade7b5976d2b0e586b";
 const BNB_POOL = "0xEf74d1FCEEA7d142d7A64A6AF969955839A17B83";
-const BNB_DEV = "0x5555601c3f86d0fF98b3a09C17fe5E0C597EC0Ce";
-let lastBnbBlock = null;
+
+// Thay đổi từ theo dõi Block sang theo dõi Số dư
+let lastBnbBalance = null; 
 
 async function checkBNB() {
     try {
-        const currentBlock = await bscProvider.getBlockNumber();
-        if (lastBnbBlock === null) {
-            lastBnbBlock = currentBlock;
-        } else if (currentBlock > lastBnbBlock) {
-            const contract = new ethers.Contract(BNB_TOKEN, ["event Transfer(address indexed from, address indexed to, uint256 value)"], bscProvider);
-            const events = await contract.queryFilter("Transfer", lastBnbBlock + 1, currentBlock);
-            for (const e of events) {
-                const { from, to, value } = e.args;
-                if (from.toLowerCase() === BNB_DEV.toLowerCase() && to.toLowerCase() === BNB_POOL.toLowerCase()) {
-                    const amount = Number(ethers.formatUnits(value, 18));
-                    await sendUrgentAlert("BNB", amount, `🔎 Tx: https://bscscan.com/tx/${e.transactionHash}`);
-                }
-            }
-            lastBnbBlock = currentBlock;
+        const contract = new ethers.Contract(BNB_TOKEN, [
+            "function balanceOf(address owner) view returns (uint256)"
+        ], bscProvider);
+
+        // Lấy số dư hiện tại của ví Pool
+        const balanceWei = await contract.balanceOf(BNB_POOL);
+        const current = Number(ethers.formatUnits(balanceWei, 18));
+
+        // Khởi tạo số dư lần đầu khi bot chạy
+        if (lastBnbBalance === null) {
+            lastBnbBalance = current;
+            console.log(`[BNB] Khởi tạo số dư: ${current}`);
+            return;
         }
-    } catch (e) { console.log("BNB lag..."); }
+
+        // Nếu số dư tăng lên (ví dụ nạp thêm trên 10 ROAM)
+        if (current > lastBnbBalance + 10) {
+            const diff = current - lastBnbBalance;
+            // Kích hoạt spam báo về điện thoại của bạn
+            await sendUrgentAlert("BNB", diff, `💰 Tổng dư ví Pool: ${current.toLocaleString()} ROAM`);
+        }
+        
+        lastBnbBalance = current;
+        console.log(`[BNB] Cập nhật số dư: ${current}`);
+
+    } catch (e) { 
+        // Nếu mạng lag, bot chỉ ghi log chứ không sập (fallback)
+        console.log("⚠️ BNB lag hoặc RPC quá tải... Đang đợi lượt sau."); 
+    }
 }
 
 /* ================= SYSTEM HANDLER (BÁO SẬP) ================= */
