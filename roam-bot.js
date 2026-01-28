@@ -26,12 +26,11 @@ http.createServer((req, res) => {
 
 /* ================= NOTIFICATION SYSTEM ================= */
 
-// Hàm spam khi có Pool
 async function sendUrgentAlert(chain, amount, extraInfo) {
     const messages = [
         `🚨🚨🚨 **[${chain}] ROAM NẠP POOL!!** 🚨🚨🚨\n\nSố lượng: **+${amount.toLocaleString()} ROAM**\n${extraInfo}`,
-        `🔥 **GẤP! GẤP! GẤP!** 🔥\n\nLink: https://weroam.xyz/`,
-        `⚡ **PROJECT BY DINHTHACH** ⚡`
+        `🔥 **CHECK NGAY TẠI:** https://weroam.xyz/`,
+        `⚡ **DỰ ÁN CỦA ANH THẠCH - TOOL VIETNAM** ⚡`
     ];
     for (const msg of messages) {
         try {
@@ -41,10 +40,10 @@ async function sendUrgentAlert(chain, amount, extraInfo) {
     }
 }
 
-// Báo cáo định kỳ (Heartbeat)
+// Báo cáo định kỳ
 setInterval(async () => {
     try {
-        await bot.sendMessage(CHAT_ID, "😎 Anh Thạch đẹp trai, em đang làm việc chăm chỉ đây, mọi thứ đang chạy rất tốt! ✅");
+        await bot.sendMessage(CHAT_ID, "😎 Hệ thống BNB & SOL vẫn đang canh gác 24/7 cho anh Thạch nhé! ✅");
     } catch (e) { console.error("Lỗi gửi heartbeat"); }
 }, HEARTBEAT_INTERVAL);
 
@@ -59,20 +58,20 @@ async function checkSolana() {
         const res = await solConn.getTokenAccountBalance(SOL_POOL_ACC);
         const current = res?.value?.uiAmount ?? 0;
         if (lastSolBalance !== null && current > lastSolBalance + 10) {
-            await sendUrgentAlert("SOLANA", current - lastSolBalance, `💰 Tổng dư: ${current.toLocaleString()}`);
+            await sendUrgentAlert("SOLANA", current - lastSolBalance, `💰 Pooled ROAM: ${current.toLocaleString()}`);
         }
         lastSolBalance = current;
     } catch (e) { console.log("Solana lag..."); }
 }
 
-/* ================= BNB LOGIC (BẢN CẢI TIẾN - QUÉT SỐ DƯ) ================= */
-// Mình thay bằng link RPC llama để tốc độ phản hồi nhanh hơn link cũ
+/* ================= BNB LOGIC (SỬ DỤNG PAIR CONTRACT THẬT) ================= */
 const BSC_HTTP = "https://binance.llamarpc.com"; 
 const bscProvider = new ethers.JsonRpcProvider(BSC_HTTP);
 const BNB_TOKEN = "0x3fefe29da25bea166fb5f6ade7b5976d2b0e586b";
-const BNB_POOL = "0xEf74d1FCEEA7d142d7A64A6AF969955839A17B83";
 
-// Thay đổi từ theo dõi Block sang theo dõi Số dư
+// ĐÃ ĐỔI SANG PAIR CONTRACT ROAM/USDT (PANCAKE V3)
+const BNB_POOL = "0x30D59a44930B3994c116846EFe55fC8fcF608aa8".toLowerCase();
+
 let lastBnbBalance = null; 
 
 async function checkBNB() {
@@ -81,48 +80,38 @@ async function checkBNB() {
             "function balanceOf(address owner) view returns (uint256)"
         ], bscProvider);
 
-        // Lấy số dư hiện tại của ví Pool
         const balanceWei = await contract.balanceOf(BNB_POOL);
         const current = Number(ethers.formatUnits(balanceWei, 18));
 
-        // Khởi tạo số dư lần đầu khi bot chạy
         if (lastBnbBalance === null) {
             lastBnbBalance = current;
-            console.log(`[BNB] Khởi tạo số dư: ${current}`);
+            console.log(`[BNB] Khởi tạo Pooled ROAM: ${current}`);
             return;
         }
 
-        // Nếu số dư tăng lên (ví dụ nạp thêm trên 10 ROAM)
+        // Nếu lượng ROAM trong Pool tăng lên (Dev nạp thanh khoản)
         if (current > lastBnbBalance + 10) {
             const diff = current - lastBnbBalance;
-            // Kích hoạt spam báo về điện thoại của bạn
-            await sendUrgentAlert("BNB", diff, `💰 Tổng dư ví Pool: ${current.toLocaleString()} ROAM`);
+            await sendUrgentAlert("BNB CHAIN", diff, `📊 Tổng Pooled ROAM hiện tại: ${current.toLocaleString()}`);
         }
         
         lastBnbBalance = current;
-        console.log(`[BNB] Cập nhật số dư: ${current}`);
+        console.log(`[BNB] Check Pool: ${current} ROAM`);
 
     } catch (e) { 
-        // Nếu mạng lag, bot chỉ ghi log chứ không sập (fallback)
-        console.log("⚠️ BNB lag hoặc RPC quá tải... Đang đợi lượt sau."); 
+        console.log("⚠️ BNB Pool đang bận, đợi lượt sau..."); 
     }
 }
 
-/* ================= SYSTEM HANDLER (BÁO SẬP) ================= */
+/* ================= SYSTEM HANDLER ================= */
 
-// Khi bot khởi động lại
-bot.sendMessage(CHAT_ID, "🚀 **BOT DINHTHACH ĐÃ ONLINE!**\nEm đã sẵn sàng soi Pool cho anh.");
+bot.sendMessage(CHAT_ID, "🚀 **BOT BNB V2.5 ONLINE!**\nĐã nhắm mục tiêu vào Pool ROAM/USDT thật.");
 
-// Khi có lỗi cực nặng làm sập bot
 process.on('uncaughtException', async (err) => {
     try {
-        await bot.sendMessage(CHAT_ID, "❌ **ANH THẠCH ƠI, EM SẬP RỒI!**\nLỗi: " + err.message + "\nAnh kiểm tra lại Render nhé.");
+        await bot.sendMessage(CHAT_ID, "❌ **SERVER CÓ BIẾN!**\nLỗi: " + err.message);
     } catch (e) {}
     process.exit(1);
-});
-
-process.on('unhandledRejection', async (reason) => {
-    console.error("Lỗi không xác định:", reason);
 });
 
 /* ================= VÒNG LẶP CHÍNH ================= */
